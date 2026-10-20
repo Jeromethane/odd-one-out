@@ -1,0 +1,17 @@
+# Folders that should never be uploaded to GitHub
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor and IDE files
+.vscode/
+.idea/
+*.swp
+
+# Node (not used by this project, but just in case)
+node_modules/
+npm-debug.log*
+
+# Local environment files
+.env
+.env.local

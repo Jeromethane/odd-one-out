@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Odd Word Game — ODD ONE OUT</title>
+  <meta name="description" content="Odd Word Game (ODD ONE OUT) — find the word that doesn't belong. Three levels, 180 categories, pure HTML, CSS and JavaScript.">
+  <meta name="color-scheme" content="dark">
+  <!-- Favicon: the circuit-brain logo. RELATIVE path so it also works when the
+       site is published under a GitHub Pages repository URL. -->
+  <link rel="icon" href="assets/icons/favicon.svg" type="image/svg+xml">
+
+  <!-- Fonts from the Canva design: "Baloo 2" for the heavy rounded headings,
+       "Poppins" for body text. If the player is offline the font falls back
+       to Trebuchet MS / Segoe UI and everything still works. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&amp;family=Poppins:wght@400;500;600;700&amp;display=swap">
+
+  <!-- Stylesheet uses a RELATIVE path so the site also works on GitHub Pages
+       (where it lives at https://user.github.io/repository-name/ instead of the domain root). -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- Decorative corner chevrons from the Canva design. Purely visual. -->
+  <div class="bg-decor" aria-hidden="true">
+    <svg class="chevrons chevrons--top" viewBox="0 0 240 210" fill="none">
+      <defs>
+        <linearGradient id="chevGrad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#4FC6F5"/>
+          <stop offset="0.5" stop-color="#3B7FE2"/>
+          <stop offset="1" stop-color="#6A3FD0"/>
+        </linearGradient>
+      </defs>
+      <g stroke="url(#chevGrad)" stroke-width="13" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 34 L74 105 L8 176"/>
+        <path d="M64 24 L130 105 L64 186"/>
+        <path d="M120 12 L186 105 L120 198"/>
+      </g>
+    </svg>
+    <svg class="chevrons chevrons--bottom" viewBox="0 0 240 210" fill="none">
+      <defs>
+        <linearGradient id="chevGradBottom" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#4FC6F5"/>
+          <stop offset="0.5" stop-color="#3B7FE2"/>
+          <stop offset="1" stop-color="#6A3FD0"/>
+        </linearGradient>
+      </defs>
+      <g stroke="url(#chevGradBottom)" stroke-width="13" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 34 L74 105 L8 176"/>
+        <path d="M64 24 L130 105 L64 186"/>
+        <path d="M120 12 L186 105 L120 198"/>
+      </g>
+    </svg>
+  </div>
+
+  <!-- Everything the game draws is rendered into this element by JavaScript. -->
+  <main id="app" class="app" tabindex="-1"></main>
+
+  <noscript>
+    <div class="noscript-message">
+      <h1>Odd Word Game</h1>
+      <p>This game needs JavaScript to run. Please enable JavaScript in your browser and reload the page.</p>
+    </div>
+  </noscript>
+
+  <!-- Script order matters: the word bank loads first, then storage and
+       statistics, then game logic, then navigation, then the app renderer. -->
+  <script src="js/wordbank.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/statistics.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/navigation.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
