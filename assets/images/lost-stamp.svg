@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540 250" role="img" aria-label="LOST rubber stamp">
+  <!-- Slightly rotated red rubber stamp with a white frame and white LOST
+       letters, with small chips removed so it looks hand-stamped like the
+       Canva reference. -->
+  <g transform="rotate(-6 270 125)">
+    <rect x="30" y="34" width="480" height="182" rx="10" fill="#EC1B25"/>
+    <rect x="50" y="52" width="440" height="146" rx="6" fill="none" stroke="#FFFFFF" stroke-width="9"/>
+    <text x="270" y="163" text-anchor="middle" font-family="'Arial Black','Arial Bold',Arial,sans-serif"
+          font-size="104" font-weight="900" letter-spacing="10" fill="#FFFFFF">LOST</text>
+    <!-- Distress chips -->
+    <g fill="#001D33" opacity="0.7">
+      <rect x="34" y="60" width="12" height="9" rx="2"/>
+      <rect x="96" y="36" width="20" height="7" rx="2"/>
+      <rect x="210" y="38" width="14" height="6" rx="2"/>
+      <rect x="330" y="36" width="24" height="7" rx="2"/>
+      <rect x="470" y="70" width="13" height="10" rx="2"/>
+      <rect x="486" y="150" width="16" height="8" rx="2"/>
+      <rect x="392" y="204" width="22" height="8" rx="2"/>
+      <rect x="240" y="206" width="16" height="7" rx="2"/>
+      <rect x="120" y="204" width="18" height="8" rx="2"/>
+      <rect x="36" y="160" width="11" height="14" rx="2"/>
+      <rect x="150" y="96" width="10" height="7" rx="2" opacity="0.9"/>
+      <rect x="368" y="112" width="12" height="8" rx="2" opacity="0.9"/>
+    </g>
+    <g fill="#EC1B25">
+      <rect x="176" y="118" width="9" height="12" rx="2"/>
+      <rect x="300" y="96" width="8" height="10" rx="2"/>
+    </g>
+  </g>
+</svg>
