@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 214" role="img" aria-label="Golden trophy cup">
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFE08A"/>
+      <stop offset="0.45" stop-color="#F3B93B"/>
+      <stop offset="1" stop-color="#CE8A1B"/>
+    </linearGradient>
+    <linearGradient id="goldDark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E5A62C"/>
+      <stop offset="1" stop-color="#B87A15"/>
+    </linearGradient>
+  </defs>
+  <!-- Handles -->
+  <path d="M54 40 C28 40 16 56 16 78 C16 104 36 122 62 124" fill="none" stroke="url(#goldDark)" stroke-width="15" stroke-linecap="round"/>
+  <path d="M146 40 C172 40 184 56 184 78 C184 104 164 122 138 124" fill="none" stroke="url(#goldDark)" stroke-width="15" stroke-linecap="round"/>
+  <!-- Cup -->
+  <path d="M46 26 H154 V78 C154 112 130 136 100 136 C70 136 46 112 46 78 Z" fill="url(#gold)"/>
+  <!-- Rim -->
+  <rect x="42" y="18" width="116" height="16" rx="8" fill="url(#goldDark)"/>
+  <!-- Stem -->
+  <path d="M87 136 H113 L119 170 H81 Z" fill="url(#gold)"/>
+  <!-- Base -->
+  <rect x="60" y="168" width="80" height="18" rx="6" fill="url(#goldDark)"/>
+  <rect x="44" y="186" width="112" height="22" rx="9" fill="#A96C10"/>
+  <!-- Star badge -->
+  <path d="M100 48 l8 17 19 2 -14 13 4 19 -17 -9 -17 9 4 -19 -14 -13 19 -2 z" fill="#FFF7DC"/>
+</svg>

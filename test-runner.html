@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Odd Word Game — Test Runner</title>
+  <style>
+    body { font-family: "Segoe UI", Verdana, sans-serif; background: #1b1035; color: #f4f1ff; margin: 0; padding: 1.5rem; }
+    h1 { font-size: 1.4rem; }
+    .summary { font-size: 1.1rem; font-weight: 700; padding: 0.7rem 1rem; border-radius: 10px; display: inline-block; }
+    .summary.pass { background: #14532d; color: #bbf7d0; }
+    .summary.fail { background: #7f1d1d; color: #fecaca; }
+    table { border-collapse: collapse; margin-top: 1rem; width: 100%; max-width: 1100px; }
+    th, td { border: 1px solid #4b2a86; padding: 0.4rem 0.6rem; text-align: left; font-size: 0.9rem; vertical-align: top; }
+    tr.failed td { background: rgba(229, 72, 77, 0.18); }
+    tr.passed td.status { color: #7ce8a8; font-weight: 700; }
+    tr.failed td.status { color: #ff9a9d; font-weight: 700; }
+    pre { white-space: pre-wrap; margin: 0; font-size: 0.82rem; }
+    #app { display: none; } /* the real game mount point, hidden while tests run */
+  </style>
+</head>
+<body>
+  <h1>Odd Word Game — automated test suite</h1>
+  <p>This page loads the real game files and checks them. It is used during development.</p>
+  <div id="summary" class="summary">Running…</div>
+  <table id="results" hidden>
+    <thead><tr><th>#</th><th>Status</th><th>Test</th><th>Details</th></tr></thead>
+    <tbody></tbody>
+  </table>
+
+  <!-- The real game mount point (hidden). app.js will initialise into it. -->
+  <div id="app"></div>
+
+  <!-- Same script order as index.html -->
+  <script src="../js/wordbank.js"></script>
+  <script src="../js/storage.js"></script>
+  <script src="../js/statistics.js"></script>
+  <script src="../js/game.js"></script>
+  <script src="../js/navigation.js"></script>
+  <script src="../js/app.js"></script>
+
+  <script>
+    "use strict";
+    /* ======================================================================
+       Tiny test framework
+       ====================================================================== */
+    var tests = [];
+    function test(name, fn) { tests.push({ name: name, fn: fn }); }
+    function assert(condition, message) {
+      if (!condition) throw new Error(message || "Assertion failed");
+    }
+    function assertEqual(actual, expected, message) {
+      if (actual !== expected) {
+        throw new Error((message || "Values differ") + " — expected " + JSON.stringify(expected) +
+          " but got " + JSON.stringify(actual));
+      }
+    }
+    function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+    function resetStorage() {
+      window.localStorage.removeItem(OWG.storage.STORAGE_KEY);
+    }
+    function seed(attempts, completed, username) {
+      window.localStorage.setItem(OWG.storage.STORAGE_KEY, JSON.stringify({
+        username: username || "Tester",
+        completedLevels: completed || [],
+        seq: attempts.length,
+        attempts: attempts
+      }));
+    }
+    function makeAttempt(level, outcome, correct, wrong, id) {
+      return {
+        id: id, level: level, outcome: outcome, reason: outcome === "win" ? "target" : "time",
+        correct: correct, wrong: wrong, rounds: correct + wrong, timeTaken: 30, endedAt: Date.now()
+      };
+    }
+
+    /* ======================================================================
+       A. WORD BANK INTEGRITY
+       ====================================================================== */
+    test("A1 — the word bank contains exactly 180 categories", function () {
+      assert(Array.isArray(OWG.WORD_BANK), "WORD_BANK missing");
+      assertEqual(OWG.WORD_BANK.length, 180, "Category count");
+    });
+
+    test("A2 — ids run 1..180 with no gaps or duplicates", function () {
+      OWG.WORD_BANK.forEach(function (category, index) {
+        assertEqual(category.id, index + 1, "Id at position " + index);
+      });
+    });
+
+    test("A3 — groups match the supplied difficulty ranges", function () {
+      OWG.WORD_BANK.forEach(function (category) {
+        var expected = category.id <= 40 ? "easy" : (category.id <= 90 ? "intermediate" : "advanced");
+        assertEqual(category.group, expected, "Group of category " + category.id);
+      });
+    });
+
+    test("A4 — every category has a name and at least one word", function () {
+      OWG.WORD_BANK.forEach(function (category) {
+        assert(category.name && category.name.length > 0, "Category " + category.id + " has no name");
+        assert(Array.isArray(category.words) && category.words.length > 0,
+          "Category " + category.id + " (" + category.name + ") has no words");
+        category.words.forEach(function (word) {
+          assert(typeof word === "string" && word.trim().length > 0,
+            "Category " + category.id + " contains an empty word");
+        });
+      });
+    });
+
+    test("A5 — no category contains duplicate words", function () {
+      OWG.WORD_BANK.forEach(function (category) {
+        var seen = Object.create(null); // avoid Object.prototype keys like "constructor"
+        category.words.forEach(function (word) {
+          var key = word.toLowerCase();
+          assert(!seen[key], "Duplicate word '" + word + "' in category " + category.id);
+          seen[key] = true;
+        });
+      });
+    });
+
+    test("A6 — total word count is the full supplied bank (not a sample)", function () {
+      var total = OWG.WORD_BANK.reduce(function (sum, c) { return sum + c.words.length; }, 0);
+      assert(total > 1500, "Only " + total + " words in the bank");
+    });
+
+    test("A7 — spot checks: short categories kept, special characters preserved", function () {
+      var byId = {};
+      OWG.WORD_BANK.forEach(function (c) { byId[c.id] = c; });
+      assertEqual(byId[40].words.length, 7, "Category 40 (Days of the Week)");
+      assertEqual(byId[44].words.length, 5, "Category 44 (Oceans) must be kept despite being small");
+      assertEqual(byId[50].words.length, 5, "Category 50 (Dwarf Planets) must be kept despite being small");
+      assertEqual(byId[99].words.length, 7, "Category 99 (Logic Gates) must be kept despite being small");
+      assert(byId[42].words.indexOf("Brasília") !== -1, "Brasília must be preserved");
+      assert(byId[92].words.indexOf("Newton's First Law") !== -1, "Newton's First Law must be preserved");
+      assert(byId[69].words.indexOf(".py") !== -1, ".py must be preserved");
+      assert(byId[130].words.indexOf("A* Search") !== -1, "A* Search must be preserved");
+      assert(byId[120].words.indexOf("RuBisCO") !== -1, "RuBisCO must be preserved");
+      assert(byId[180].words.indexOf("Mersenne Prime") !== -1, "Category 180 must be complete");
+    });
+
+    /* ======================================================================
+       B. LEVEL CONFIGURATION
+       ====================================================================== */
+    test("B1 — level rules exactly match the specification", function () {
+      var L = OWG.game.LEVELS;
+      assertEqual(L[1].wordsPerRound, 5, "Level 1 words per round");
+      assertEqual(L[1].seconds, 180, "Level 1 time");
+      assertEqual(L[1].required, 13, "Level 1 required correct");
+      assertEqual(L[1].group, "easy", "Level 1 category group");
+      assertEqual(L[2].wordsPerRound, 7, "Level 2 words per round");
+      assertEqual(L[2].seconds, 120, "Level 2 time");
+      assertEqual(L[2].required, 9, "Level 2 required correct");
+      assertEqual(L[2].group, "intermediate", "Level 2 category group");
+      assertEqual(L[3].wordsPerRound, 9, "Level 3 words per round");
+      assertEqual(L[3].seconds, 60, "Level 3 time");
+      assertEqual(L[3].required, 5, "Level 3 required correct");
+      assertEqual(L[3].group, "advanced", "Level 3 category group");
+      assertEqual(L[1].maxWrong, 2, "Level 1 allowed wrong answers");
+      assertEqual(L[2].maxWrong, 2, "Level 2 allowed wrong answers");
+      assertEqual(L[3].maxWrong, 2, "Level 3 allowed wrong answers");
+    });
+
+    /* ======================================================================
+       C. ROUND GENERATION
+       ====================================================================== */
+    function categoryById(id) {
+      for (var i = 0; i < OWG.WORD_BANK.length; i++) {
+        if (OWG.WORD_BANK[i].id === id) return OWG.WORD_BANK[i];
+      }
+      return null;
+    }
+    function norm(text) { return String(text).toLowerCase().trim(); }
+
+    function checkRoundShape(round, level) {
+      var config = OWG.game.LEVELS[level];
+      assertEqual(round.words.length, config.wordsPerRound, "Round word count for level " + level);
+
+      // No duplicates inside a round.
+      var seen = Object.create(null);
+      round.words.forEach(function (word) {
+        assert(!seen[norm(word)], "Duplicate word in round: " + word);
+        seen[norm(word)] = true;
+      });
+
+      var mainWords = categoryById(round.mainCategory.id).words.map(norm);
+      var oddWords = categoryById(round.oddCategory.id).words.map(norm);
+      assert(round.mainCategory.id !== round.oddCategory.id, "Main and odd category must differ");
+
+      // Exactly one word comes from the odd category; the rest from the main one.
+      var fromOdd = round.words.filter(function (word) { return oddWords.indexOf(norm(word)) !== -1; });
+      var fromMain = round.words.filter(function (word) { return mainWords.indexOf(norm(word)) !== -1; });
+      assertEqual(fromOdd.length, 1, "Exactly one odd-category word");
+      assertEqual(fromMain.length, config.mainCount, "Main-category word count");
+
+      // The tracked odd word really is the odd one and is in no other group.
+      var oddWord = round.words[round.oddIndex];
+      assertEqual(norm(oddWord), norm(fromOdd[0]), "oddIndex points at the odd word");
+      assert(mainWords.indexOf(norm(oddWord)) === -1, "Odd word must not belong to the main category");
+
+      // Both categories come from the level's difficulty group and the main
+      // category is large enough.
+      assertEqual(round.mainCategory.group, config.group, "Main category group");
+      assertEqual(round.oddCategory.group, config.group, "Odd category group");
+      assert(categoryById(round.mainCategory.id).words.length >= config.mainCount,
+        "Main category too small for level " + level);
+
+      // The hand-checked exclusion list must be respected.
+      var key = Math.min(round.mainCategory.id, round.oddCategory.id) + "-" +
+                Math.max(round.mainCategory.id, round.oddCategory.id);
+      assert(!OWG.game.EXCLUDED_PAIRS[key], "Excluded pair used: " + key);
+    }
+
+    [1, 2, 3].forEach(function (level) {
+      test("C" + level + "1 — 400 generated rounds are all valid for Level " + level, function () {
+        var positions = {};
+        var lastMain = null;
+        for (var i = 0; i < 400; i++) {
+          var round = OWG.game.generateRound(level, lastMain);
+          checkRoundShape(round, level);
+          positions[round.oddIndex] = true;
+          // A round must not repeat the previous round's main category.
+          assert(round.mainCategory.id !== lastMain, "Main category repeated in consecutive rounds");
+          lastMain = round.mainCategory.id;
+        }
+        // The odd word must be able to appear in ANY position.
+        var seenCount = Object.keys(positions).length;
+        assertEqual(seenCount, OWG.game.LEVELS[level].wordsPerRound,
+          "Odd word must appear in every possible position across 400 rounds");
+      });
+    });
+
+    test("C4 — categories that are too small are never chosen as the main category", function () {
+      var small = OWG.WORD_BANK.filter(function (c) {
+        return c.group === "advanced" && c.words.length < 8;
+      }).map(function (c) { return c.id; });
+      assert(small.length > 0, "Expected at least one small advanced category (e.g. 99 Logic Gates)");
+      for (var i = 0; i < 300; i++) {
+        var round = OWG.game.generateRound(3, null);
+        assert(small.indexOf(round.mainCategory.id) === -1,
+          "Small category " + round.mainCategory.id + " was used as a main category");
+      }
+    });
+
+    test("C5 — generation is fast and never loops forever (1000 rounds)", function () {
+      var started = Date.now();
+      for (var i = 0; i < 1000; i++) OWG.game.generateRound(1, null);
+      var elapsed = Date.now() - started;
+      assert(elapsed < 8000, "1000 rounds took " + elapsed + " ms");
+    });
+
+    test("C6 — the generator still works when Math.random is degenerate", function () {
+      var originalRandom = Math.random;
+      Math.random = function () { return 0; };
+      try {
+        [1, 2, 3].forEach(function (level) {
+          var round = OWG.game.generateRound(level, null);
+          checkRoundShape(round, level);
+        });
+      } finally {
+        Math.random = originalRandom;
+      }
+    });
+
+    /* ======================================================================
+       D. STORAGE
+       ====================================================================== */
+    test("D1 — first visit has no saved data", function () {
+      resetStorage();
+      assertEqual(OWG.storage.hasUsername(), false, "hasUsername on first visit");
+      assertEqual(OWG.storage.getUsername(), "", "username on first visit");
+      assertEqual(OWG.storage.getAttempts().length, 0, "attempts on first visit");
+      assertEqual(OWG.storage.getCompletedLevels().length, 0, "completed levels on first visit");
+    });
+
+    test("D2 — empty and whitespace usernames are rejected", function () {
+      resetStorage();
+      assertEqual(OWG.storage.setUsername("").ok, false, "empty username");
+      assertEqual(OWG.storage.setUsername("   ").ok, false, "whitespace username");
+      assertEqual(OWG.storage.getUsername(), "", "nothing must be saved for invalid input");
+    });
+
+    test("D3 — a valid username is trimmed and saved", function () {
+      resetStorage();
+      var result = OWG.storage.setUsername("  Alice  ");
+      assertEqual(result.ok, true, "valid username accepted");
+      assertEqual(OWG.storage.getUsername(), "Alice", "username trimmed");
+    });
+
+    test("D4 — wins and losses are both recorded, latest per level is correct", function () {
+      resetStorage();
+      OWG.storage.recordAttempt(makeAttempt(1, "win", 13, 1, 0));
+      OWG.storage.recordAttempt(makeAttempt(1, "loss", 4, 3, 0));
+      OWG.storage.recordAttempt(makeAttempt(2, "win", 9, 2, 0));
+
+      assertEqual(OWG.storage.getAttempts().length, 3, "attempt count");
+      assertEqual(OWG.storage.getLatestAttempt(1).outcome, "loss", "latest Level 1 attempt is the loss");
+      assertEqual(OWG.storage.getLatestAttempt(1).correct, 4, "latest Level 1 correct count");
+      assertEqual(OWG.storage.getLatestAttempt(2).outcome, "win", "latest Level 2 attempt");
+      assertEqual(OWG.storage.getLatestAttempt(3), null, "Level 3 has no attempts yet");
+
+      var totals = OWG.storage.getLifetimeTotals();
+      assertEqual(totals.correct, 26, "lifetime correct = 13 + 4 + 9");
+      assertEqual(totals.wrong, 6, "lifetime wrong = 1 + 3 + 2");
+
+      var completed = OWG.storage.getCompletedLevels();
+      assert(completed.indexOf(1) !== -1 && completed.indexOf(2) !== -1,
+        "wins must mark their levels completed");
+      assertEqual(completed.length, 2, "a loss must not complete a level");
+    });
+
+    test("D5 — changing the username never erases progress or statistics", function () {
+      resetStorage();
+      OWG.storage.setUsername("Alice");
+      OWG.storage.recordAttempt(makeAttempt(1, "win", 13, 1, 0));
+      OWG.storage.setUsername("Bob");
+      assertEqual(OWG.storage.getUsername(), "Bob", "new username saved");
+      assertEqual(OWG.storage.getAttempts().length, 1, "attempts survive a username change");
+      assertEqual(OWG.storage.getCompletedLevels().join(","), "1", "completed levels survive");
+      assertEqual(OWG.storage.getLifetimeTotals().correct, 13, "totals survive");
+    });
+
+    test("D6 — malformed saved JSON falls back to safe defaults", function () {
+      resetStorage();
+      window.localStorage.setItem(OWG.storage.STORAGE_KEY, "{not valid json");
+      assertEqual(OWG.storage.getUsername(), "", "username fallback");
+      assertEqual(OWG.storage.getAttempts().length, 0, "attempts fallback");
+      assertEqual(OWG.storage.getCompletedLevels().length, 0, "levels fallback");
+    });
+
+    test("D7 — wrong-shaped saved data is cleaned, valid attempts are kept", function () {
+      resetStorage();
+      window.localStorage.setItem(OWG.storage.STORAGE_KEY, JSON.stringify({
+        username: 42,
+        completedLevels: "nope",
+        attempts: [
+          { level: 9, outcome: "win", correct: "x", wrong: 0, rounds: 0, timeTaken: 0 },
+          makeAttempt(1, "win", 13, 0, 1),
+          null
+        ]
+      }));
+      assertEqual(OWG.storage.getUsername(), "", "non-string username ignored");
+      var attempts = OWG.storage.getAttempts();
+      assertEqual(attempts.length, 1, "invalid attempts dropped, valid kept");
+      assertEqual(OWG.storage.getCompletedLevels().join(","), "1", "completed level recovered from the win");
+    });
+
+    /* ======================================================================
+       E. STATISTICS & PROGRESSION
+       ====================================================================== */
+    test("E1 — fresh player: next level is 1, only Level 1 unlocked", function () {
+      resetStorage();
+      assertEqual(OWG.statistics.nextLevel(), 1, "next level");
+      assertEqual(OWG.statistics.unlockedLevels().join(","), "1", "unlocked levels");
+      assertEqual(OWG.statistics.levelStatus(1), "unlocked", "level 1 status");
+      assertEqual(OWG.statistics.levelStatus(2), "locked", "level 2 status");
+      assertEqual(OWG.statistics.levelStatus(3), "locked", "level 3 status");
+    });
+
+    test("E2 — progression unlocks levels only through wins", function () {
+      resetStorage();
+      OWG.storage.recordAttempt(makeAttempt(1, "loss", 3, 3, 0));
+      assertEqual(OWG.statistics.nextLevel(), 1, "a loss must not advance the next level");
+      assertEqual(OWG.statistics.levelStatus(2), "locked", "Level 2 still locked after a loss");
+
+      OWG.storage.recordAttempt(makeAttempt(1, "win", 13, 0, 0));
+      assertEqual(OWG.statistics.nextLevel(), 2, "next level after winning Level 1");
+      assertEqual(OWG.statistics.levelStatus(2), "unlocked", "Level 2 unlocked");
+      assertEqual(OWG.statistics.levelStatus(1), "completed", "Level 1 completed");
+
+      OWG.storage.recordAttempt(makeAttempt(2, "win", 9, 1, 0));
+      assertEqual(OWG.statistics.nextLevel(), 3, "next level after winning Level 2");
+      assertEqual(OWG.statistics.unlockedLevels().join(","), "1,2,3", "all unlocked");
+
+      OWG.storage.recordAttempt(makeAttempt(3, "win", 5, 0, 0));
+      assertEqual(OWG.statistics.nextLevel(), null, "no next level when everything is done");
+      assertEqual(OWG.statistics.levelsCompleted(), 3, "three levels completed");
+      assertEqual(OWG.statistics.homeProgress().nextLevelText, "All levels completed!", "home text");
+    });
+
+    test("E3 — replaying a completed level and losing keeps the unlock", function () {
+      resetStorage();
+      OWG.storage.recordAttempt(makeAttempt(1, "win", 13, 0, 0));
+      OWG.storage.recordAttempt(makeAttempt(1, "loss", 5, 3, 0));
+      assert(OWG.storage.getCompletedLevels().indexOf(1) !== -1, "Level 1 must still be completed");
+      assert(OWG.statistics.unlockedLevels().indexOf(2) !== -1, "Level 2 must still be unlocked");
+      assertEqual(OWG.statistics.latestAttempt(1).outcome, "loss", "latest attempt is the replay loss");
+    });
+
+    test("E4 — clock formatting helpers", function () {
+      assertEqual(OWG.statistics.formatClock(180), "03:00", "180s");
+      assertEqual(OWG.statistics.formatClock(120), "02:00", "120s");
+      assertEqual(OWG.statistics.formatClock(60), "01:00", "60s");
+      assertEqual(OWG.statistics.formatClock(65), "01:05", "65s");
+      assertEqual(OWG.statistics.formatClock(0), "00:00", "0s");
+      assertEqual(OWG.statistics.formatDuration(96), "1 min 36 s", "96s");
+    });
+
+    /* ======================================================================
+       F. GAME FLOW (fake clock, shortened feedback delays)
+       ====================================================================== */
+    var realNow = Date.now;
+    var realFeedback, realEndFlash, realTick;
+
+    function shortenTiming() {
+      realFeedback = OWG.game.TIMING.FEEDBACK_MS;
+      realEndFlash = OWG.game.TIMING.END_FLASH_MS;
+      realTick = OWG.game.TIMING.TICK_MS;
+      OWG.game.TIMING.FEEDBACK_MS = 0;
+      OWG.game.TIMING.END_FLASH_MS = 0;
+      OWG.game.TIMING.TICK_MS = 100000; // no background ticking during tests
+    }
+    function restoreTiming() {
+      OWG.game.TIMING.FEEDBACK_MS = realFeedback;
+      OWG.game.TIMING.END_FLASH_MS = realEndFlash;
+      OWG.game.TIMING.TICK_MS = realTick;
+      OWG.game.setNow(function () { return realNow(); });
+    }
+
+    function startObserved(level) {
+      var seen = { ticks: [], rounds: 0, ends: [] };
+      OWG.game.start(level, {
+        onStart: function () {},
+        onTick: function (s) { seen.ticks.push(s); },
+        onRound: function () { seen.rounds++; },
+        onAnswer: function () {},
+        onEnd: function (result) {
+          seen.ends.push(result);
+          // Mirror exactly what app.js does when a level ends.
+          OWG.storage.recordAttempt({
+            level: result.level,
+            outcome: result.outcome,
+            reason: result.reason,
+            correct: result.correct,
+            wrong: result.wrong,
+            rounds: result.rounds,
+            timeTaken: result.timeTaken,
+            endedAt: Date.now()
+          });
+        }
+      });
+      return seen;
+    }
+
+    function correctIndex() { return OWG.game.snapshot().oddIndex; }
+    function wrongIndex() {
+      var snap = OWG.game.snapshot();
+      for (var i = 0; i < snap.words.length; i++) {
+        if (i !== snap.oddIndex) return i;
+      }
+      return -1;
+    }
+
+    test("F1 — starting a level sets up the exact configured rules", function () {
+      resetStorage();
+      shortenTiming();
+      try {
+        var seen = startObserved(3);
+        var snap = OWG.game.snapshot();
+        assertEqual(snap.level, 3, "level");
+        assertEqual(snap.words.length, 9, "nine words on screen for Level 3");
+        assertEqual(snap.remaining, 60, "Level 3 starts at 60 seconds");
+        assertEqual(seen.ends.length, 0, "no level should have ended yet");
+        OWG.game.stop();
+      } finally { restoreTiming(); }
+    });
+
+    test("F2 — reaching the target wins immediately and records once", async function () {
+      resetStorage();
+      shortenTiming();
+      try {
+        var seen = startObserved(3); // needs 5 correct
+        for (var i = 0; i < 5; i++) {
+          var result = OWG.game.submitAnswer(correctIndex());
+          assert(result && result.isCorrect, "answer " + (i + 1) + " should be correct");
+          await sleep(10); // let the (0 ms) round transition fire
+        }
+        await sleep(20);
+        assertEqual(seen.ends.length, 1, "onEnd must fire exactly once");
+        assertEqual(seen.ends[0].outcome, "win", "outcome");
+        assertEqual(seen.ends[0].reason, "target", "reason");
+        assertEqual(seen.ends[0].correct, 5, "correct answers");
+        assertEqual(seen.ends[0].rounds, 5, "rounds played");
+
+        var attempts = OWG.storage.getAttempts();
+        assertEqual(attempts.length, 1, "exactly one attempt recorded");
+        assertEqual(attempts[0].outcome, "win", "recorded outcome");
+        assert(OWG.storage.getCompletedLevels().indexOf(3) !== -1, "Level 3 marked completed");
+
+        // The level is over: no more answers are accepted and no second record.
+        assertEqual(OWG.game.submitAnswer(correctIndex()), null, "answers after the end are ignored");
+        assertEqual(seen.ends.length, 1, "still only one end event");
+      } finally { restoreTiming(); }
+    });
+
+    test("F3 — the third wrong answer loses immediately", async function () {
+      resetStorage();
+      shortenTiming();
+      try {
+        var seen = startObserved(1);
+        var r1 = OWG.game.submitAnswer(wrongIndex());
+        assert(r1 && !r1.isCorrect && !r1.terminal, "first wrong answer must not end the level");
+        await sleep(10);
+        var r2 = OWG.game.submitAnswer(wrongIndex());
+        assert(r2 && !r2.terminal, "second wrong answer must not end the level");
+        await sleep(10);
+        var r3 = OWG.game.submitAnswer(wrongIndex());
+        assert(r3 && r3.terminal && r3.outcome === "loss" && r3.reason === "wrong3",
+          "third wrong answer must end the level as a loss");
+        await sleep(20);
+        assertEqual(seen.ends.length, 1, "one end event");
+        assertEqual(seen.ends[0].wrong, 3, "three wrong answers");
+        var attempts = OWG.storage.getAttempts();
+        assertEqual(attempts.length, 1, "one recorded attempt");
+        assertEqual(OWG.storage.getCompletedLevels().length, 0, "a loss completes nothing");
+      } finally { restoreTiming(); }
+    });
+
+    test("F4 — a second tap during the feedback flash is ignored", function () {
+      resetStorage();
+      shortenTiming();
+      try {
+        startObserved(1);
+        var first = OWG.game.submitAnswer(correctIndex());
+        assert(first !== null, "first tap accepted");
+        var second = OWG.game.submitAnswer(correctIndex());
+        assertEqual(second, null, "second tap during feedback must be rejected");
+        var snap = OWG.game.snapshot();
+        assertEqual(snap.correct, 1, "only one correct answer counted");
+        assertEqual(snap.rounds, 1, "only one round counted");
+        OWG.game.stop();
+      } finally { restoreTiming(); }
+    });
+
+    test("F5 — the timer keeps running during feedback", async function () {
+      resetStorage();
+      shortenTiming();
+      try {
+        OWG.game.TIMING.FEEDBACK_MS = 60; // real feedback window for this test
+        var fakeNow = realNow();
+        OWG.game.setNow(function () { return fakeNow; });
+        var seen = startObserved(2); // 120 seconds
+        OWG.game.submitAnswer(correctIndex()); // enter feedback
+        fakeNow += 5000; // five seconds pass while the flash is shown
+        OWG.game.checkTimer();
+        var remaining = OWG.game.snapshot().remaining;
+        assert(remaining <= 115 && remaining >= 114, "about 115 seconds should remain, got " + remaining);
+        await sleep(90); // feedback finishes, next round starts
+        assertEqual(OWG.game.snapshot().phase, "answering", "next round is running");
+        assertEqual(seen.rounds, 1, "one new round after the flash");
+        OWG.game.stop();
+      } finally { restoreTiming(); }
+    });
+
+    test("F6 — running out of time is a loss with the full time recorded", function () {
+      resetStorage();
+      shortenTiming();
+      try {
+        var fakeNow = realNow();
+        OWG.game.setNow(function () { return fakeNow; });
+        var seen = startObserved(1);
+        fakeNow += 181000; // 181 seconds pass
+        OWG.game.checkTimer();
+        assertEqual(seen.ends.length, 1, "time over ends the level once");
+        assertEqual(seen.ends[0].outcome, "loss", "outcome");
+        assertEqual(seen.ends[0].reason, "time", "reason");
+        assertEqual(seen.ends[0].timeTaken, 180, "time taken equals the level length");
+        var attempts = OWG.storage.getAttempts();
+        assertEqual(attempts.length, 1, "the loss is recorded once");
+        assertEqual(OWG.storage.getCompletedLevels().length, 0, "no level unlocked");
+        assertEqual(OWG.game.submitAnswer(correctIndex()), null, "no answers after time over");
+      } finally { restoreTiming(); }
+    });
+
+    test("F7 — an interrupted attempt (stop/refresh) is not recorded", function () {
+      resetStorage();
+      shortenTiming();
+      try {
+        startObserved(1);
+        OWG.game.submitAnswer(correctIndex());
+        OWG.game.stop(); // same effect as refreshing the page mid-game
+        assertEqual(OWG.storage.getAttempts().length, 0, "no attempt recorded on interruption");
+        assertEqual(OWG.game.snapshot(), null, "game state cleared");
+      } finally { restoreTiming(); }
+    });
+
+    test("F8 — retry starts the same level again from the beginning", function () {
+      resetStorage();
+      shortenTiming();
+      try {
+        var seen = startObserved(3);
+        OWG.game.submitAnswer(wrongIndex());
+        OWG.game.submitAnswer(wrongIndex());
+        OWG.game.submitAnswer(wrongIndex());
+        void seen;
+        // Retry (what the Retry button does).
+        var again = startObserved(3);
+        var snap = OWG.game.snapshot();
+        assertEqual(snap.correct, 0, "counters reset");
+        assertEqual(snap.wrong, 0, "counters reset");
+        assertEqual(snap.remaining, 60, "full time again");
+        assertEqual(snap.words.length, 9, "nine words again");
+        assertEqual(again.ends.length, 0, "fresh attempt is running");
+        OWG.game.stop();
+      } finally { restoreTiming(); }
+    });
+
+    /* ======================================================================
+       G. SCREENS & NAVIGATION (real DOM)
+       ====================================================================== */
+    function currentScreen() {
+      var el = document.querySelector("#app .screen");
+      return el ? el.getAttribute("data-screen") : null;
+    }
+
+    test("G1 — first visit opens the Start Page", function () {
+      resetStorage();
+      OWG.navigation.startApp();
+      assertEqual(currentScreen(), "start", "first screen");
+      assert(document.getElementById("username-input") !== null, "username field present");
+      assertEqual(document.getElementById("save-username-btn").disabled, true,
+        "Save starts disabled");
+    });
+
+    test("G2 — an empty username cannot be saved; a valid one opens Home", function () {
+      resetStorage();
+      OWG.navigation.startApp();
+      var form = document.getElementById("username-form");
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      assertEqual(currentScreen(), "start", "still on the Start Page after an empty submit");
+      assert(document.getElementById("username-error").textContent.length > 0,
+        "an error message is shown");
+
+      var input = document.getElementById("username-input");
+      input.value = "WordWizard";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      assertEqual(document.getElementById("save-username-btn").disabled, false,
+        "Save becomes available for a valid name");
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      assertEqual(currentScreen(), "home", "Home opens after saving");
+      assertEqual(OWG.storage.getUsername(), "WordWizard", "username saved");
+    });
+
+    test("G3 — a returning player opens Home directly", function () {
+      resetStorage();
+      seed([], [], "Veteran");
+      OWG.navigation.startApp();
+      assertEqual(currentScreen(), "home", "returning player lands on Home");
+      assert(document.getElementById("app").textContent.indexOf("Veteran") !== -1,
+        "Home shows the username");
+      assert(document.getElementById("app").textContent.indexOf("Level 1") !== -1,
+        "Home shows the next level");
+    });
+
+    test("G4 — Play starts Level 1 for a new player with five words", function () {
+      resetStorage();
+      seed([], [], "Player");
+      OWG.navigation.startApp();
+      OWG.navigation.playFromHome();
+      assertEqual(currentScreen(), "gameplay", "gameplay screen");
+      assertEqual(document.querySelectorAll("#word-grid .word-tile").length, 5, "five tiles");
+      assertEqual(document.getElementById("timer-text").textContent, "03:00", "three-minute timer");
+      // No leaving gameplay while a level runs.
+      assertEqual(document.querySelector('#app [data-action="play"]'), null,
+        "no Play/Home button during gameplay");
+      assertEqual(document.querySelector('#app [data-action="go-home"]'), null,
+        "no Home button during gameplay");
+      OWG.game.stop();
+    });
+
+    test("G5 — tapping the odd word counts as correct and locks the tiles", async function () {
+      resetStorage();
+      shortenTiming();
+      try {
+        seed([], [], "Player");
+        OWG.navigation.startApp();
+        OWG.navigation.playFromHome(); // Level 1
+        var snap = OWG.game.snapshot();
+        var tile = document.querySelector('#word-grid .word-tile[data-word-index="' + snap.oddIndex + '"]');
+        tile.click();
+        assertEqual(document.getElementById("correct-count").textContent, "1", "correct counter");
+        var tiles = document.querySelectorAll("#word-grid .word-tile");
+        assertEqual(tiles[0].disabled, true, "tiles locked during feedback");
+        assert(document.getElementById("feedback").textContent.indexOf("Correct") !== -1,
+          "positive feedback shown");
+        assert(tiles[snap.oddIndex].classList.contains("is-correct"), "green state on the tile");
+        await sleep(20); // feedback ends, next round begins
+        OWG.game.stop();
+      } finally { restoreTiming(); }
+    });
+
+    test("G6 — a wrong tap shows red feedback and counts one wrong", function () {
+      resetStorage();
+      shortenTiming();
+      try {
+        seed([], [], "Player");
+        OWG.navigation.startApp();
+        OWG.navigation.playFromHome();
+        var snap = OWG.game.snapshot();
+        for (var i = 0; i < snap.words.length; i++) {
+          if (i !== snap.oddIndex) {
+            document.querySelector('#word-grid .word-tile[data-word-index="' + i + '"]').click();
+            break;
+          }
+        }
+        assertEqual(document.getElementById("wrong-count").textContent, "1", "wrong counter");
+        assert(document.getElementById("feedback").textContent.indexOf("Not that one") !== -1,
+          "negative feedback shown");
+        assert(document.querySelector(".word-tile.is-wrong") !== null, "red state on the tile");
+        OWG.game.stop();
+      } finally { restoreTiming(); }
+    });
+
+    test("G7 — a refresh-like restart returns Home and records nothing", function () {
+      resetStorage();
+      seed([], [], "Player");
+      OWG.navigation.startApp();
+      OWG.navigation.playFromHome();
+      OWG.game.submitAnswer(OWG.game.snapshot().oddIndex);
+      // Refreshing the browser re-runs the app:
+      OWG.navigation.startApp();
+      assertEqual(currentScreen(), "home", "back on Home after a refresh");
+      assertEqual(OWG.storage.getAttempts().length, 0, "the interrupted attempt was not recorded");
+    });
+
+    test("G8 — Statistics shows the latest attempt per level and clamped arrows", function () {
+      resetStorage();
+      seed([
+        makeAttempt(1, "win", 13, 1, 1),
+        makeAttempt(1, "loss", 6, 3, 2)
+      ], [1], "StatKid");
+      OWG.navigation.startApp();
+      OWG.navigation.goStatistics();
+      assertEqual(currentScreen(), "statistics", "statistics screen");
+      assertEqual(document.getElementById("total-correct").textContent, "19", "lifetime correct 13 + 6");
+      assertEqual(document.getElementById("total-wrong").textContent, "4", "lifetime wrong 1 + 3");
+      assertEqual(document.getElementById("levels-completed-count").textContent, "1 / 3", "levels completed");
+      assert(document.querySelector('[data-action="stats-prev"]').disabled, "left arrow disabled on Level 1");
+
+      document.querySelector('[data-action="stats-next"]').click();
+      assert(document.getElementById("app").textContent.indexOf("Level 2") !== -1, "arrow moved to Level 2");
+      assert(document.getElementById("app").textContent.indexOf("No finished attempt yet") !== -1,
+        "empty state for Level 2");
+      var next = document.querySelector('[data-action="stats-next"]');
+      next.click();
+      assert(document.querySelector('[data-action="stats-next"]').disabled,
+        "right arrow disabled on Level 3");
+    });
+
+    test("G9 — changing the username on Statistics keeps every statistic", function () {
+      resetStorage();
+      seed([makeAttempt(1, "win", 13, 1, 1)], [1], "OldName");
+      OWG.navigation.startApp();
+      OWG.navigation.goStatistics();
+      document.querySelector('[data-action="change-username"]').click();
+      var input = document.getElementById("change-username-input");
+      input.value = "NewName";
+      document.getElementById("change-username-form")
+        .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      assertEqual(OWG.storage.getUsername(), "NewName", "username changed");
+      assertEqual(OWG.storage.getAttempts().length, 1, "attempts kept");
+      assertEqual(OWG.storage.getCompletedLevels().join(","), "1", "progress kept");
+      assertEqual(document.getElementById("total-correct").textContent, "13", "totals kept");
+    });
+
+    test("G10 — Choose Level shows locked levels and never starts them", function () {
+      resetStorage();
+      seed([], [], "Player");
+      OWG.navigation.startApp();
+      OWG.navigation.goChooseLevel();
+      assertEqual(currentScreen(), "chooseLevel", "choose level screen");
+      var cards = document.querySelectorAll(".level-card");
+      assertEqual(cards.length, 3, "three level cards");
+      assertEqual(cards[1].disabled, true, "Level 2 locked");
+      assertEqual(cards[2].disabled, true, "Level 3 locked");
+      assertEqual(OWG.navigation.startLevel(2), false, "locked level refuses to start");
+      assertEqual(currentScreen(), "chooseLevel", "screen unchanged");
+      assertEqual(cards[0].disabled, false, "Level 1 available");
+    });
+
+    test("G11 — completed levels can be replayed from Choose Level", function () {
+      resetStorage();
+      seed([makeAttempt(1, "win", 13, 0, 1)], [1], "Player");
+      OWG.navigation.startApp();
+      OWG.navigation.goChooseLevel();
+      var cards = document.querySelectorAll(".level-card");
+      assertEqual(cards[0].disabled, false, "Level 1 still playable");
+      assertEqual(cards[1].disabled, false, "Level 2 now unlocked");
+      assert(cards[0].textContent.indexOf("Completed") !== -1, "Level 1 marked completed");
+      cards[0].click();
+      assertEqual(currentScreen(), "gameplay", "replay starts the level");
+      assertEqual(OWG.game.snapshot().level, 1, "Level 1");
+      OWG.game.stop();
+    });
+
+    test("G12 — win and loss screens lead to the right places", function () {
+      resetStorage();
+      seed([makeAttempt(1, "win", 13, 0, 1)], [1], "Player");
+      OWG.navigation.startApp();
+
+      // Level Completed (Level 1) -> Continue opens Level 2.
+      OWG.navigation.go("levelComplete", { level: 1, result: makeAttempt(1, "win", 13, 0, 1) });
+      assertEqual(currentScreen(), "levelComplete", "level complete screen");
+      document.querySelector('[data-action="continue"]').click();
+      assertEqual(currentScreen(), "gameplay", "continue starts Level 2");
+      assertEqual(OWG.game.snapshot().level, 2, "Level 2");
+      OWG.game.stop();
+
+      // Loss screen -> Retry restarts the same level with full settings.
+      OWG.game.start(2, {});
+      OWG.navigation.go("timeOver", { level: 2, result: makeAttempt(2, "loss", 4, 3, 2) });
+      document.querySelector('[data-action="retry"]').click();
+      assertEqual(OWG.game.snapshot().level, 2, "retry keeps Level 2");
+      assertEqual(OWG.game.snapshot().remaining, 120, "retry restores the two-minute timer");
+      assertEqual(OWG.game.snapshot().words.length, 7, "seven words per round on Level 2");
+      OWG.game.stop();
+    });
+
+    test("G13 — All Levels Completed asks the exact question with Yes/No", function () {
+      resetStorage();
+      seed([
+        makeAttempt(1, "win", 13, 0, 1),
+        makeAttempt(2, "win", 9, 0, 2),
+        makeAttempt(3, "win", 5, 0, 3)
+      ], [1, 2, 3], "Champ");
+      OWG.navigation.startApp();
+      OWG.navigation.go("allComplete", {});
+      assert(document.getElementById("app").textContent.indexOf("Do you want to continue?") !== -1,
+        "the exact question is asked");
+      document.querySelector('[data-action="all-yes"]').click();
+      assertEqual(currentScreen(), "chooseLevel", "Yes opens Choose Level");
+      OWG.navigation.go("allComplete", {});
+      document.querySelector('[data-action="all-no"]').click();
+      assertEqual(currentScreen(), "home2", "No opens Home 2");
+    });
+
+    test("G14 — Home 2 lists completed levels and navigates both ways", function () {
+      resetStorage();
+      seed([makeAttempt(1, "win", 13, 0, 1), makeAttempt(2, "win", 9, 0, 2)], [1, 2], "Player");
+      OWG.navigation.startApp();
+      OWG.navigation.goHome2();
+      assertEqual(currentScreen(), "home2", "home 2 screen");
+      var text = document.getElementById("app").textContent;
+      assert(text.indexOf("Level 1") !== -1 && text.indexOf("Level 2") !== -1,
+        "completed levels are listed");
+      document.querySelector('[data-action="home2-play"]').click();
+      assertEqual(currentScreen(), "chooseLevel", "Play opens Choose Level");
+      OWG.navigation.goHome2();
+      document.querySelector('[data-action="home2-back"]').click();
+      assertEqual(currentScreen(), "home", "back to the main Home Page");
+      assertEqual(OWG.storage.getAttempts().length, 2, "statistics preserved");
+    });
+
+    /* ======================================================================
+       Runner — waits until the page (and the game's own DOMContentLoaded
+       start-up) has finished, so the tests control the app from a calm state.
+       ====================================================================== */
+    (async function run() {
+      if (document.readyState === "loading") {
+        await new Promise(function (resolve) {
+          document.addEventListener("DOMContentLoaded", resolve);
+        });
+      }
+
+      var passed = 0;
+      var failures = [];
+      var table = document.getElementById("results");
+      var body = table.querySelector("tbody");
+      table.hidden = false;
+
+      for (var i = 0; i < tests.length; i++) {
+        var entry = tests[i];
+        var row = document.createElement("tr");
+        var details = "";
+        var ok = false;
+        try {
+          await entry.fn();
+          ok = true;
+          passed++;
+        } catch (error) {
+          details = error.stack || error.message;
+          failures.push(entry.name + ": " + error.message);
+          row.className = "failed";
+        }
+        row.innerHTML =
+          "<td>" + (i + 1) + "</td>" +
+          '<td class="status">' + (ok ? "PASS" : "FAIL") + "</td>" +
+          "<td>" + entry.name.replace(/</g, "&lt;") + "</td>" +
+          "<td><pre>" + details.replace(/</g, "&lt;") + "</pre></td>";
+        body.appendChild(row);
+      }
+
+      // Leave the page in a clean state.
+      OWG.game.stop();
+      resetStorage();
+
+      var summary = document.getElementById("summary");
+      summary.textContent = passed + " of " + tests.length + " tests passed" +
+        (failures.length ? " — " + failures.length + " FAILED" : "");
+      summary.className = "summary " + (failures.length ? "fail" : "pass");
+      document.title = "TESTS " + (failures.length ? "FAILED" : "PASSED") +
+        " (" + passed + "/" + tests.length + ")";
+
+      window.__TEST_RESULTS__ = {
+        total: tests.length,
+        passed: passed,
+        failed: failures.length,
+        failures: failures
+      };
+    })();
+  </script>
+</body>
+</html>
